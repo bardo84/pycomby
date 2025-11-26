@@ -2,7 +2,7 @@
 
 **Comby-like structural search and rewrite for code**
 
-A Python implementation of [Comby](https://comby.dev) patterns for structural code matching and transformation. Write once, match and replace patterns across different code contexts without regex complexity.
+A Python implementation of [Comby](https://comby.dev) patterns for structural code matching and transformation.
 
 ## Quick Start
 
@@ -140,4 +140,4 @@ MIT License. See [LICENSE](LICENSE).
 
 ---
 
-**Related:** [Comby](https://comby.dev) – The original Go implementation
+**Related:** [Comby](https://github.com/comby-tools/comby) – The original Comby implementation
