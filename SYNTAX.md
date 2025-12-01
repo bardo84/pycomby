@@ -1,4 +1,4 @@
-# Pattern Syntax Reference
+# pycomby Pattern Syntax Reference
 
 Complete reference for pycomby pattern and replacement syntax.
 
