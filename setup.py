@@ -16,7 +16,7 @@ setup(
     long_description_content_type="text/markdown",
     author="Bardo",
     url="https://github.com/bardo84/pycomby",
-    packages=find_packages(exclude=["tests*"]),
+    py_modules=["pycomby"],
     python_requires=">=3.8",
     entry_points={
         "console_scripts": [
