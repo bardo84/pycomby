@@ -6,8 +6,17 @@ CLI wrapper for pycomby.
 import sys
 import json
 import argparse
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
+from pathlib import Path
 from pycomby import pycomby, pycomby_single
+
+# Phase 2 imports (optional)
+try:
+    from semantic_resolver import SemanticResolver
+    from builtin_registry import BuiltinRegistry
+    PHASE_2_AVAILABLE = True
+except ImportError:
+    PHASE_2_AVAILABLE = False
 
 
 def parse_args(args=None):
@@ -38,8 +47,20 @@ Examples:
                         help='Read pattern from file')
     parser.add_argument('-r', '--replacement-file', dest='replacement_file',
                         help='Read replacement from file')
+    parser.add_argument('--registry', dest='registry_file',
+                        help='Read registry (JSON) for lookup operations')
+    parser.add_argument('--on-unresolved', dest='on_unresolved', choices=['placeholder', 'skip', 'fail'],
+                        default='placeholder',
+                        help='Behavior when lookup fails: placeholder (default), skip, or fail')
     parser.add_argument('--first', action='store_true',
                         help='Match only first occurrence (default: all)')
+    
+    # Phase 2 arguments
+    if PHASE_2_AVAILABLE:
+        parser.add_argument('--builtin-registry', dest='builtin_registry_file',
+                            help='Phase 2: Load builtin registry from JSON file')
+        parser.add_argument('--detect-context', action='store_true',
+                            help='Phase 2: Enable context-aware backend detection')
     
     parsed = parser.parse_args(args)
     
@@ -81,6 +102,50 @@ def read_file_or_inline(file_path: Optional[str], inline_text: Optional[str]) ->
     return inline_text
 
 
+def load_registry(registry_file: Optional[str]) -> Dict[str, str]:
+    """Load Phase 1 registry from JSON file."""
+    if not registry_file:
+        return {}
+    try:
+        with open(registry_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            if not isinstance(data, dict):
+                sys.stderr.write(f"Error: Registry must be a JSON object (dict), got {type(data).__name__}\n")
+                sys.exit(2)
+            return data
+    except FileNotFoundError:
+        sys.stderr.write(f"Error: Registry file not found: {registry_file}\n")
+        sys.exit(2)
+    except json.JSONDecodeError as e:
+        sys.stderr.write(f"Error: Invalid JSON in registry file: {e}\n")
+        sys.exit(2)
+    except Exception as e:
+        sys.stderr.write(f"Error reading registry: {e}\n")
+        sys.exit(2)
+
+
+def load_builtin_registry(registry_file: Optional[str]) -> Optional['BuiltinRegistry']:
+    """Load Phase 2 builtin registry from JSON file."""
+    if not PHASE_2_AVAILABLE or not registry_file:
+        return None
+    try:
+        registry = BuiltinRegistry()
+        registry.load_json(registry_file)
+        return registry
+    except FileNotFoundError:
+        sys.stderr.write(f"Error: Builtin registry file not found: {registry_file}\n")
+        sys.exit(2)
+    except json.JSONDecodeError as e:
+        sys.stderr.write(f"Error: Invalid JSON in builtin registry file: {e}\n")
+        sys.exit(2)
+    except ValueError as e:
+        sys.stderr.write(f"Error: Invalid builtin registry format: {e}\n")
+        sys.exit(2)
+    except Exception as e:
+        sys.stderr.write(f"Error reading builtin registry: {e}\n")
+        sys.exit(2)
+
+
 def format_ndjson(matches: list) -> str:
     """Format matches as newline-delimited JSON."""
     lines = []
@@ -97,6 +162,19 @@ def main(args=None):
     input_text = read_input(parsed.input_file)
     pattern = read_file_or_inline(parsed.pattern_file, parsed.pattern)
     replacement = read_file_or_inline(parsed.replacement_file, parsed.replacement)
+    registry = load_registry(parsed.registry_file)
+    
+    # Phase 2: Load builtin registry and create semantic resolver
+    builtin_registry = None
+    semantic_resolver = None
+    
+    if PHASE_2_AVAILABLE:
+        builtin_registry = load_builtin_registry(
+            getattr(parsed, 'builtin_registry_file', None)
+        )
+        
+        if builtin_registry or getattr(parsed, 'detect_context', False):
+            semantic_resolver = SemanticResolver(builtin_registry)
     
     if not pattern:
         sys.stderr.write("Error: Pattern is empty\n")
@@ -108,7 +186,14 @@ def main(args=None):
         
         if replacement:
             # Replacement mode: output modified text
-            result = match_func(input_text, pattern, replacement)
+            result = match_func(
+                input_text,
+                pattern,
+                replacement,
+                registry=registry,
+                builtin_registry=builtin_registry,
+                semantic_resolver=semantic_resolver
+            )
             if isinstance(result, str):
                 sys.stdout.write(result)
                 # Exit code: 0 if there were replacements (result differs)

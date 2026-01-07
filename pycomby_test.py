@@ -53,5 +53,48 @@ class TestPycomby(unittest.TestCase):
         groups = pycomby_single(str_in, pattern)
         self.assertEqual(groups, {'term1': '((a + b)*(c + d))', 'rest': ' + 1'})
 
+    def test_lookup_operation_found(self):
+        """Test lookup operation with key found in registry."""
+        str_in = 'provider::<atan>'
+        pattern = 'provider::<:[func]>'
+        replacement = 'maybe_provider(":[func.lookup]")'
+        registry = {
+            'builtin:atan': 'builtins::math::trigonometry::atan::wgpu_matches_cpu'
+        }
+        outstr = pycomby_single(str_in, pattern, replacement, registry=registry)
+        self.assertEqual(outstr, 'maybe_provider("builtins::math::trigonometry::atan::wgpu_matches_cpu")')
+
+    def test_lookup_operation_not_found(self):
+        """Test lookup operation with key not found in registry (fallback)."""
+        str_in = 'provider::<unknown_func>'
+        pattern = 'provider::<:[func]>'
+        replacement = 'maybe_provider(":[func.lookup]")'
+        registry = {}
+        outstr = pycomby_single(str_in, pattern, replacement, registry=registry)
+        self.assertEqual(outstr, 'maybe_provider("TODO_CONTEXT_unknown_func")')
+
+    def test_lookup_with_other_operations(self):
+        """Test chaining lookup with other operations."""
+        str_in = 'provider::<zeros>'
+        pattern = 'provider::<:[func]>'
+        replacement = ':[func.lookup.upper]'
+        registry = {
+            'builtin:zeros': 'builtins::array::creation::zeros::host_zeros'
+        }
+        outstr = pycomby_single(str_in, pattern, replacement, registry=registry)
+        self.assertEqual(outstr, 'BUILTINS::ARRAY::CREATION::ZEROS::HOST_ZEROS')
+
+    def test_lookup_multiple_replacements(self):
+        """Test lookup operation on multiple matches."""
+        str_in = 'call(atan) and call(sin)'
+        pattern = 'call(:[func])'
+        replacement = 'lookup(":[func.lookup]")'
+        registry = {
+            'builtin:atan': 'builtins::math::trigonometry::atan::wgpu',
+            'builtin:sin': 'builtins::math::trigonometry::sin::wgpu'
+        }
+        outstr = pycomby(str_in, pattern, replacement, registry=registry)
+        self.assertEqual(outstr, 'lookup("builtins::math::trigonometry::atan::wgpu") and lookup("builtins::math::trigonometry::sin::wgpu")')
+
 if __name__ == '__main__':
     unittest.main()

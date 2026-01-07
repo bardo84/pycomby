@@ -8,11 +8,26 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
+# Phase 2 imports (optional, only if available)
+try:
+    from semantic_resolver import SemanticResolver
+    from builtin_registry import BuiltinRegistry
+    PHASE_2_AVAILABLE = True
+except ImportError:
+    PHASE_2_AVAILABLE = False
+
 # ------------------------------------------------------------
 # Public API
 # ------------------------------------------------------------
 
-def pycomby(text: str, pattern: str, replacement: Optional[str] = None) -> Union[List[Dict[str, Optional[str]]], str]:
+def pycomby(
+    text: str,
+    pattern: str,
+    replacement: Optional[str] = None,
+    registry: Optional[Dict[str, str]] = None,
+    builtin_registry: Optional['BuiltinRegistry'] = None,
+    semantic_resolver: Optional['SemanticResolver'] = None
+) -> Union[List[Dict[str, Optional[str]]], str]:
     """
     Comby-like structural matching for all occurrences.
 
@@ -21,6 +36,10 @@ def pycomby(text: str, pattern: str, replacement: Optional[str] = None) -> Union
     :param replacement: Optional replacement template. If provided, returns
                          the text with all matches replaced. Otherwise returns
                          a list of dicts of named captures for each match.
+    :param registry:    Optional lookup registry for Phase 1 'lookup' operation.
+                         Maps lookup keys to replacement values.
+    :param builtin_registry: Optional BuiltinRegistry for Phase 2 context-aware lookups.
+    :param semantic_resolver: Optional SemanticResolver for Phase 2 @hint directives.
     """
     tokens = compile_pattern(pattern)
     
@@ -53,7 +72,24 @@ def pycomby(text: str, pattern: str, replacement: Optional[str] = None) -> Union
                 offset += 1
         else:
             # Replace this match
-            rendered = render_template(replacement, captures)
+            # Phase 2: Extract hints and resolve them
+            final_replacement = replacement
+            resolved_hints = {}
+            
+            if semantic_resolver and PHASE_2_AVAILABLE:
+                final_replacement, hints = semantic_resolver.extract_hints(replacement)
+                if hints:
+                    resolved_hints = semantic_resolver.resolve(
+                        result_text, match_start, match_end, captures, hints
+                    )
+            
+            rendered = render_template(
+                final_replacement,
+                captures,
+                registry=registry or {},
+                builtin_registry=builtin_registry,
+                resolved_hints=resolved_hints
+            )
             result_text = result_text[:match_start] + rendered + result_text[match_end:]
             # Move offset to end of replacement
             offset = match_start + len(rendered)
@@ -64,7 +100,14 @@ def pycomby(text: str, pattern: str, replacement: Optional[str] = None) -> Union
         return result_text
 
 
-def pycomby_single(text: str, pattern: str, replacement: Optional[str] = None) -> Union[Dict[str, Optional[str]], str]:
+def pycomby_single(
+    text: str,
+    pattern: str,
+    replacement: Optional[str] = None,
+    registry: Optional[Dict[str, str]] = None,
+    builtin_registry: Optional['BuiltinRegistry'] = None,
+    semantic_resolver: Optional['SemanticResolver'] = None
+) -> Union[Dict[str, Optional[str]], str]:
     """
     Comby-like structural matching for the first occurrence only.
 
@@ -73,6 +116,10 @@ def pycomby_single(text: str, pattern: str, replacement: Optional[str] = None) -
     :param replacement: Optional replacement template. If provided, returns
                          the substituted string. Otherwise returns a dict of
                          named captures.
+    :param registry:    Optional lookup registry for Phase 1 'lookup' operation.
+                         Maps lookup keys to replacement values.
+    :param builtin_registry: Optional BuiltinRegistry for Phase 2 context-aware lookups.
+    :param semantic_resolver: Optional SemanticResolver for Phase 2 @hint directives.
     """
     tokens = compile_pattern(pattern)
     
@@ -90,7 +137,24 @@ def pycomby_single(text: str, pattern: str, replacement: Optional[str] = None) -
     if replacement is None:
         return captures
     else:
-        rendered = render_template(replacement, captures)
+        # Phase 2: Extract hints and resolve them
+        final_replacement = replacement
+        resolved_hints = {}
+        
+        if semantic_resolver and PHASE_2_AVAILABLE:
+            final_replacement, hints = semantic_resolver.extract_hints(replacement)
+            if hints:
+                resolved_hints = semantic_resolver.resolve(
+                    text, start, end, captures, hints
+                )
+        
+        rendered = render_template(
+            final_replacement,
+            captures,
+            registry=registry or {},
+            builtin_registry=builtin_registry,
+            resolved_hints=resolved_hints
+        )
         return text[:start] + rendered + text[end:]
 
 
@@ -468,31 +532,79 @@ def match_balanced(
 # Replacement rendering
 # ------------------------------------------------------------
 
-def render_template(template: str, captures: Dict[str, Optional[str]]) -> str:
+def render_template(
+    template: str,
+    captures: Dict[str, Optional[str]],
+    registry: Optional[Dict[str, str]] = None,
+    builtin_registry: Optional['BuiltinRegistry'] = None,
+    resolved_hints: Optional[Dict[str, str]] = None
+) -> str:
     """
     Replace :[name] or :[name.op1.op2] placeholders with capture values,
     applying optional chained operations.
+    
+    :param template: Template string with :[...] placeholders
+    :param captures: Dict of captured values
+    :param registry: Optional lookup registry for Phase 1 'lookup' operation
+    :param builtin_registry: Optional BuiltinRegistry for Phase 2 context lookups
+    :param resolved_hints: Optional resolved hint values from Phase 2
     """
+    if registry is None:
+        registry = {}
+    if resolved_hints is None:
+        resolved_hints = {}
+    
     def replacer(m: re.Match) -> str:
         placeholder = m.group(1)
         parts = placeholder.split(".")
         field = parts[0]
         ops = parts[1:]
 
-        if field not in captures or captures[field] is None:
+        # Phase 2: Check resolved hints first
+        if field in resolved_hints:
+            value = str(resolved_hints[field])
+        elif field in captures and captures[field] is not None:
+            value = str(captures[field])
+        else:
             return m.group(0)
 
-        value = str(captures[field])
-        for op_name in ops:
-            func = OPERATIONS.get(op_name)
-            if func is None:
-                # Unknown operation: leave placeholder unchanged
-                return m.group(0)
-            try:
-                value = func(str(value))
-            except Exception:
-                # On failure, keep original placeholder
-                return m.group(0)
+        for op_spec in ops:
+            # Phase 2: Handle 'lookup(hint)' or 'lookup(backend)' syntax
+            if op_spec.startswith('lookup(') and op_spec.endswith(')'):
+                arg = op_spec[7:-1]  # Extract argument
+                
+                # If arg is a resolved hint, use its value as backend
+                backend = resolved_hints.get(arg) if arg in resolved_hints else arg
+                
+                # Look up in builtin registry
+                if builtin_registry and PHASE_2_AVAILABLE:
+                    resolved = builtin_registry.get(value, backend)
+                    if resolved:
+                        value = resolved
+                    else:
+                        value = f"TODO_CONTEXT_{value}_{backend}"
+                else:
+                    value = f"TODO_CONTEXT_{value}_{backend}"
+            
+            # Phase 1: Handle 'lookup' operation
+            elif op_spec == 'lookup':
+                # Build registry key: "builtin:{value}" by default
+                key = f"builtin:{value}"
+                if key in registry:
+                    value = registry[key]
+                else:
+                    # Fallback: use placeholder to mark unresolved lookup
+                    value = f"TODO_CONTEXT_{value}"
+            else:
+                func = OPERATIONS.get(op_spec)
+                if func is None:
+                    # Unknown operation: leave placeholder unchanged
+                    return m.group(0)
+                try:
+                    value = func(str(value))
+                except Exception:
+                    # On failure, keep original placeholder
+                    return m.group(0)
         return str(value)
 
     return re.sub(r":\[([^\]]+)\]", replacer, template)

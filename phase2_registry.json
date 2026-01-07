@@ -1,0 +1,38 @@
+{
+  "atan": {
+    "host": "builtins::math::trigonometry::atan::host_atan",
+    "wgpu": "builtins::math::trigonometry::atan::wgpu_matches_cpu",
+    "gpu": "builtins::math::trigonometry::atan::gpu_atan",
+    "default": "builtins::math::trigonometry::atan::host_atan"
+  },
+  "sin": {
+    "host": "builtins::math::trigonometry::sin::host_sin",
+    "wgpu": "builtins::math::trigonometry::sin::wgpu_matches_cpu",
+    "default": "builtins::math::trigonometry::sin::host_sin"
+  },
+  "cos": {
+    "host": "builtins::math::trigonometry::cos::host_cos",
+    "wgpu": "builtins::math::trigonometry::cos::wgpu_matches_cpu",
+    "default": "builtins::math::trigonometry::cos::host_cos"
+  },
+  "zeros": {
+    "host": "builtins::array::creation::zeros::host_zeros",
+    "wgpu": "builtins::array::creation::zeros::wgpu_zeros",
+    "default": "builtins::array::creation::zeros::host_zeros"
+  },
+  "ones": {
+    "host": "builtins::array::creation::ones::host_ones",
+    "wgpu": "builtins::array::creation::ones::wgpu_ones",
+    "default": "builtins::array::creation::ones::host_ones"
+  },
+  "add": {
+    "host": "builtins::math::elementwise::add::host_add",
+    "wgpu": "builtins::math::elementwise::add::wgpu_add",
+    "default": "builtins::math::elementwise::add::host_add"
+  },
+  "multiply": {
+    "host": "builtins::math::elementwise::multiply::host_multiply",
+    "wgpu": "builtins::math::elementwise::multiply::wgpu_multiply",
+    "default": "builtins::math::elementwise::multiply::host_multiply"
+  }
+}
