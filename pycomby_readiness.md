@@ -1,17 +1,15 @@
 # Pycomby Readiness (General API Migration)
 
-Pycomby is designed for migrations where the structural pattern already contains the literal you need to inject into a replacement. This document keeps the Tier 1 pattern front and center so you can rewrite guarded APIs without touching every call site manually.
-
 ## Tier 1 – Structural injection
 
-1. Capture the existing literal (module, guard label, or helper identifier) using macros such as `:[module]` inside the matched pattern.
-2. Feed the literal into the replacement string so each rewritten call references the same helper or guard signature.
+1. Capture the existing literal (module, identifier, ..) using macros such as `:[module]` inside the matched pattern.
+2. Feed the literal into the replacement string so each rewritten call references the same signature.
 3. This workflow needs no semantic analysis; it works when the necessary literal already resides near the old API call.
    ```python
    pycomby(
        before,
        "legacy_api::provider::<:[module]>::call",
-       'shared_guard::maybe_provider(":[module]")?.call',
+       'shared_guard::maybe_provider(":[module]")?.call'
    )
    ```
    The `:[module]` capture becomes the literal that now drives the helper invocation.
