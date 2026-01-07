@@ -98,7 +98,8 @@ pycomby(text, pattern, ":[x.basename.upper]") # basename, then uppercase
 ## Use Cases
 
 - **Code refactoring** – Find and rewrite patterns across files
-- **API migration** – Update function calls (e.g., `old_api()` → `new_api()`)
+- **API migration** – Update function calls (e.g., `old_api()` → `new_api()`) with captured context
+- **String interpolation in rewrites** – Inject captured identifiers into string literals (e.g., inject module name into `maybe_provider("...")`)
 - **Linting** – Detect problematic patterns in code
 - **Code generation** – Template-based transformations
 - **Log parsing** – Extract structured data from unformatted text
@@ -124,11 +125,43 @@ This means you get:
 - Proper handling of nested delimiters (unlike `\(.*\)`)
 - Whitespace flexibility without explicit patterns
 
+## Common Pattern: String Interpolation of Captures
+
+A powerful use case is injecting captured text into string literals during a rewrite, for example when consolidating every `legacy_api::call(...)` site into a shared guard.
+
+```python
+# API migration with context: before/after
+before = '''legacy_api::provider::<core::math::tan>::call(...)
+legacy_api::provider::<core::array::add>::call(...)'''
+
+# Capture the module path and inject it into the new guard call
+matches = pycomby(
+    before,
+    "legacy_api::provider::<:[module]>::call",
+    'shared_guard::maybe_provider(":[module]")?.call',
+)
+
+# Result (Tier 1):
+# shared_guard::maybe_provider("core::math::tan")?.call(...)
+# shared_guard::maybe_provider("core::array::add")?.call(...)
+```
+
+This is **Tier 1** (structural injection): when the literal you need is already present in the matched text and can be captured, pycomby injects it directly into the replacement string literal. For cases where the injected literal must be derived, see [pycomby_forward.md](pycomby_forward.md) for the path toward **Tier 2/3**.
+
+## Documented Use Case: API Guard Consolidation
+
+1. `Find`: target the existing `legacy_api::provider::<...>::call` invocations; capture the module path or guard label that now drives the helper.
+2. `Replace`: feed the captured literal into the new guard call so every rewritten site expresses the same API and logging behavior.
+3. `Verify`: rerun the integration or boundary tests that exercise the helper (e.g., those that expect the guard to emit a warning when the provider is missing).
+
+This keeps every call site aligned with the shared guard and prevents `legacy_api::provider` from proliferating across the tree.
+
 ## Limitations
 
 - Backtracking can be quadratic in worst case (use specific patterns when possible)
 - Structural macros are language-agnostic (don't skip language-specific comments)
 - Entire input loaded into memory
+- **String interpolation** of captures inside literals currently requires the capture to already contain the desired text; if you need to derive or compute the literal, use multi-pass or external scripting
 
 ## Contributing
 
